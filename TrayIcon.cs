@@ -57,7 +57,7 @@ namespace Teka
             };
 
             var exitItem = new ToolStripMenuItem("Вийти");
-            exitItem.Click += (s, e) => app.Exit();
+            exitItem.Click += (s, e) => app.ExitApp();
 
             menu.Items.Add(newItem);
             menu.Items.Add(hideItem);

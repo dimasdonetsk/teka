@@ -24,7 +24,7 @@ namespace Teka
     }
 
     /// <summary>Дані, які несемо під час перетягування іконки з папки.</summary>
-    internal sealed class TekaDrag
+    public sealed class TekaDrag
     {
         public const string Format = "Teka.Item";
         public FolderData From { get; init; }
@@ -441,7 +441,7 @@ namespace Teka
             }
         }
 
-        public void Exit()
+        public void ExitApp()
         {
             exiting = true;
             Save();
