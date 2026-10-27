@@ -101,6 +101,16 @@ namespace Teka
                 else if (e.Key == Key.Escape) { title.Text = Folder.Name; root.Focus(); e.Handled = true; }
             };
             title.LostKeyboardFocus += (s, e) => CommitTitle();
+            title.PreviewMouseLeftButtonDown += (s, e) =>
+            {
+                if (title.IsKeyboardFocusWithin) return;
+                Native.ForceForeground(hwnd);
+                Activate();
+                Keyboard.Focus(title);
+                title.SelectAll();
+                e.Handled = true;
+            };
+            title.ToolTip = "Клікни, щоб перейменувати";
 
             grid = new WrapPanel { Width = Cols * CellW, HorizontalAlignment = HorizontalAlignment.Center };
 
@@ -180,7 +190,11 @@ namespace Teka
 
             Deactivated += (s, e) =>
             {
-                if (!suppressClose && !closing && !dragging) CloseAnimated();
+                if (!suppressClose && !closing && !dragging)
+                {
+                    app.NoteAutoClose(Folder);
+                    CloseAnimated();
+                }
             };
             PreviewKeyDown += (s, e) =>
             {
@@ -220,6 +234,7 @@ namespace Teka
             Opacity = 0;
 
             Show();
+            Native.ForceForeground(hwnd);
             Activate();
 
             var ease = new QuinticEase { EasingMode = EasingMode.EaseOut };
@@ -228,15 +243,20 @@ namespace Teka
             scale.BeginAnimation(ScaleTransform.ScaleYProperty, grow);
             BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140)));
 
-            if (rename)
+            Dispatcher.BeginInvoke(new Action(() =>
             {
-                title.Focus();
-                title.SelectAll();
-            }
-            else
-            {
-                root.Focus();
-            }
+                Native.ForceForeground(hwnd);
+                Activate();
+                if (rename)
+                {
+                    Keyboard.Focus(title);
+                    title.SelectAll();
+                }
+                else
+                {
+                    Keyboard.Focus(root);
+                }
+            }), System.Windows.Threading.DispatcherPriority.Input);
         }
 
         public void CloseAnimated()
@@ -415,6 +435,42 @@ namespace Teka
             stack.Children.Add(img);
             stack.Children.Add(name);
 
+            // Хрестик «прибрати» — з'являється при наведенні, як на телефоні.
+            var badge = new Border
+            {
+                Width = 20,
+                Height = 20,
+                CornerRadius = new CornerRadius(10),
+                Background = new SolidColorBrush(Color.FromArgb(0xE6, 0x4A, 0x48, 0x56)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(0x50, 0xFF, 0xFF, 0xFF)),
+                BorderThickness = new Thickness(1),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 4, 10, 0),
+                Cursor = Cursors.Hand,
+                Visibility = Visibility.Hidden,
+                ToolTip = string.IsNullOrEmpty(item.MovedFrom) ? "Прибрати з папки" : "Повернути на робочий стіл",
+                Child = new TextBlock
+                {
+                    Text = "✕",
+                    Foreground = Brushes.White,
+                    FontSize = 10,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                }
+            };
+            badge.MouseLeftButtonDown += (s, e) => e.Handled = true;
+            badge.MouseLeftButtonUp += (s, e) =>
+            {
+                e.Handled = true;
+                pressedCell = null;
+                app.RemoveItem(Folder, item);
+            };
+
+            var cellGrid = new Grid();
+            cellGrid.Children.Add(stack);
+            cellGrid.Children.Add(badge);
+
             var cell = new Border
             {
                 Width = CellW - 6,
@@ -422,7 +478,7 @@ namespace Teka
                 Margin = new Thickness(3),
                 CornerRadius = new CornerRadius(14),
                 Background = CellHit,
-                Child = stack,
+                Child = cellGrid,
                 Tag = item,
                 AllowDrop = true,
                 ToolTip = item.Path
@@ -432,8 +488,17 @@ namespace Teka
             if (!File.Exists(item.Path) && !Directory.Exists(item.Path))
                 cell.Opacity = 0.45;
 
-            cell.MouseEnter += (s, e) => { if (!dragging) cell.Background = CellHover; };
-            cell.MouseLeave += (s, e) => cell.Background = CellHit;
+            cell.MouseEnter += (s, e) =>
+            {
+                if (dragging) return;
+                cell.Background = CellHover;
+                badge.Visibility = Visibility.Visible;
+            };
+            cell.MouseLeave += (s, e) =>
+            {
+                cell.Background = CellHit;
+                badge.Visibility = Visibility.Hidden;
+            };
 
             cell.MouseLeftButtonDown += (s, e) =>
             {

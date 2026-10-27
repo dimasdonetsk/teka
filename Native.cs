@@ -50,6 +50,46 @@ namespace Teka
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool DeleteObject(IntPtr hObject);
 
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        public static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr pid);
+
+        [DllImport("kernel32.dll")]
+        public static extern uint GetCurrentThreadId();
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, [MarshalAs(UnmanagedType.Bool)] bool fAttach);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr SetFocus(IntPtr hWnd);
+
+        /// <summary>Робить вікно активним навіть якщо Windows «не дозволяє» (фокус зараз у Провідника).</summary>
+        public static void ForceForeground(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return;
+            IntPtr fg = GetForegroundWindow();
+            if (fg == hwnd) return;
+            uint fgThread = GetWindowThreadProcessId(fg, IntPtr.Zero);
+            uint me = GetCurrentThreadId();
+            bool attached = fgThread != 0 && fgThread != me && AttachThreadInput(me, fgThread, true);
+            try
+            {
+                SetForegroundWindow(hwnd);
+                SetFocus(hwnd);
+            }
+            finally
+            {
+                if (attached) AttachThreadInput(me, fgThread, false);
+            }
+        }
+
         // ---------- DWM / composition ----------
 
         public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;

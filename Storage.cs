@@ -10,6 +10,9 @@ namespace Teka
         public string Path { get; set; }
         public string Name { get; set; }
 
+        /// <summary>Шлях, з якого елемент додали (щоб не додати двічі).</summary>
+        public string Source { get; set; }
+
         /// <summary>Звідки ярлик був перенесений (якщо його прибрали з робочого столу).</summary>
         public string MovedFrom { get; set; }
     }

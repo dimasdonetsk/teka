@@ -171,7 +171,7 @@ namespace Teka
         private void OnSourceInitialized(object sender, EventArgs e)
         {
             hwnd = new WindowInteropHelper(this).Handle;
-            Native.MakeToolWindow(hwnd, noActivate: true);
+            Native.MakeToolWindow(hwnd, noActivate: false);
 
             // Власник — робочий стіл: тоді Win+D не ховає папки.
             IntPtr progman = Native.FindWindow("Progman", null);

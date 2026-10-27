@@ -176,8 +176,22 @@ namespace Teka
 
         // ---------------- спливна папка ----------------
 
+        private FolderData lastAutoClosed;
+        private DateTime lastAutoClosedAt;
+
+        public void NoteAutoClose(FolderData f)
+        {
+            lastAutoClosed = f;
+            lastAutoClosedAt = DateTime.UtcNow;
+        }
+
         public void ToggleFolder(FolderTile tile)
         {
+            if (lastAutoClosed == tile.Folder && (DateTime.UtcNow - lastAutoClosedAt).TotalMilliseconds < 400)
+            {
+                lastAutoClosed = null;
+                return;
+            }
             if (popup != null && popup.Folder == tile.Folder && !popup.IsClosing)
             {
                 popup.CloseAnimated();
@@ -278,9 +292,13 @@ namespace Teka
                 if (!File.Exists(path) && !Directory.Exists(path)) continue;
 
                 // Не додаємо те саме двічі в одну папку.
-                if (f.Items.Any(i => string.Equals(i.Path, path, StringComparison.OrdinalIgnoreCase))) continue;
+                if (f.Items.Any(i => string.Equals(i.Path, path, StringComparison.OrdinalIgnoreCase)
+                                  || string.Equals(i.Source, path, StringComparison.OrdinalIgnoreCase)
+                                  || (Storage.IsInShortcutsDir(i.Path) && IsShortcut(path)
+                                      && string.Equals(i.Name, DisplayName(path), StringComparison.OrdinalIgnoreCase))))
+                    continue;
 
-                var item = new ItemData { Name = DisplayName(path), Path = path };
+                var item = new ItemData { Name = DisplayName(path), Path = path, Source = path };
 
                 if (IsShortcut(path) && !Storage.IsInShortcutsDir(path))
                 {
