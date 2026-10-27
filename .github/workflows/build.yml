@@ -1,5 +1,8 @@
 name: build
 
+# Кожен push у main збирає Teka і публікує реліз з інсталятором Teka-win-Setup.exe.
+# Встановлені копії Teka самі підтягують оновлення з релізів (Velopack, як у Lumos).
+
 on:
   push:
     branches: [main]
@@ -11,6 +14,9 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      REPO_URL: https://github.com/${{ github.repository }}
+      VERSION: 0.2.${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
 
@@ -21,22 +27,26 @@ jobs:
       - name: Publish
         run: >
           dotnet publish Teka.csproj -c Release -r win-x64 --self-contained true
-          -p:PublishSingleFile=true
-          -p:IncludeNativeLibrariesForSelfExtract=true
-          -p:EnableCompressionInSingleFile=true
-          -p:DebugType=none
-          -p:Version=0.1.${{ github.run_number }}
-          -o out
+          -p:DebugType=none -p:Version=${{ env.VERSION }} -o publish
+
+      - name: Install vpk
+        run: dotnet tool install -g vpk --version 1.2.161
+
+      - name: Download previous release (for small delta updates)
+        continue-on-error: true
+        run: vpk download github --repoUrl ${{ env.REPO_URL }} --token ${{ github.token }}
+
+      - name: Pack installer
+        run: >
+          vpk pack --packId Teka --packVersion ${{ env.VERSION }} --packDir publish
+          --mainExe Teka.exe --packTitle Teka --icon Assets/teka.ico
+
+      - name: Create GitHub release
+        run: >
+          vpk upload github --outputDir Releases --repoUrl ${{ env.REPO_URL }} --token ${{ github.token }}
+          --publish --releaseName "Teka ${{ env.VERSION }}" --tag v${{ env.VERSION }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Teka
-          path: out/Teka.exe
-
-      - name: Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          tag="v0.1.${{ github.run_number }}"
-          gh release create "$tag" out/Teka.exe --title "Teka $tag" --notes "Автоматична збірка з коміту ${GITHUB_SHA::7}" --latest
+          name: Teka-Setup-${{ env.VERSION }}
+          path: Releases/*Setup.exe

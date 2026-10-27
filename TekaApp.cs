@@ -6,14 +6,24 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using Microsoft.Win32;
+using Velopack;
 
 namespace Teka
 {
     public static class Program
     {
+        /// <summary>Версія, до якої щойно оновилися (щоб показати сповіщення).</summary>
+        public static string UpdatedTo { get; private set; }
+
         [STAThread]
         public static void Main()
         {
+            // Має бути першим: інсталятор і оновлювач запускають програму з особливими аргументами.
+            VelopackApp.Build()
+                .OnBeforeUninstallFastCallback(_ => TekaApp.RemoveAutostart())
+                .OnRestarted(v => UpdatedTo = v?.ToString())
+                .Run();
+
             using var mutex = new Mutex(true, "Teka.SingleInstance.v1", out bool created);
             if (!created) return;
 
@@ -72,8 +82,18 @@ namespace Teka
             foreach (var f in Config.Folders) CreateTile(f);
 
             tray = new TrayIcon(this);
-            if (firstRun)
+            if (Program.UpdatedTo != null)
+                tray.ShowTip("Teka оновлено", "Встановлено версію " + Program.UpdatedTo + ".");
+            else if (firstRun)
                 tray.ShowTip("Teka працює", "Перетягни ярлики на папку. Права кнопка на папці — більше дій.");
+
+            // Перша перевірка оновлень через 2 хвилини, далі кожні 6 годин.
+            updateTimer.Tick += async (s, a) =>
+            {
+                updateTimer.Interval = TimeSpan.FromHours(6);
+                await CheckUpdatesAsync(false);
+            };
+            if (Updater.IsInstalled) updateTimer.Start();
         }
 
         // ---------------- плитки ----------------
@@ -456,6 +476,71 @@ namespace Teka
                 {
                     Storage.Log(ex);
                 }
+            }
+        }
+
+        // ---------------- оновлення ----------------
+
+        private readonly DispatcherTimer updateTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(2) };
+        private bool updating;
+
+        public void CheckUpdatesManual() => _ = CheckUpdatesAsync(true);
+
+        private async System.Threading.Tasks.Task CheckUpdatesAsync(bool manual)
+        {
+            if (updating) return;
+            if (!Updater.IsInstalled)
+            {
+                if (manual)
+                    tray?.ShowTip("Автооновлення вимкнене",
+                        "Воно працює лише у встановленій версії. Встанови Teka через Teka-win-Setup.exe з GitHub.");
+                return;
+            }
+
+            updating = true;
+            try
+            {
+                var info = await Updater.CheckAsync();
+                if (info == null)
+                {
+                    if (manual) tray?.ShowTip("Оновлень немає", "У тебе остання версія " + Updater.CurrentVersion + ".");
+                    return;
+                }
+
+                string version = Updater.VersionOf(info);
+                if (manual) tray?.ShowTip("Знайдено версію " + version, "Завантажую. Teka перезапуститься сама.");
+                await Updater.DownloadAsync(info);
+
+                // Не перезапускатися, поки відкрита папка.
+                while (popup != null) await System.Threading.Tasks.Task.Delay(TimeSpan.FromSeconds(5));
+
+                exiting = true;
+                Save();
+                tray?.Dispose();
+                tray = null;
+                Updater.ApplyAndRestart(info);
+            }
+            catch (Exception ex)
+            {
+                exiting = false;
+                Storage.Log("Update: " + ex);
+                if (manual) tray?.ShowTip("Не вдалося оновитися", "Спробуй пізніше. " + ex.Message);
+            }
+            finally
+            {
+                updating = false;
+            }
+        }
+
+        public static void RemoveAutostart()
+        {
+            try
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(RunKey, true);
+                key?.DeleteValue("Teka", false);
+            }
+            catch
+            {
             }
         }
 

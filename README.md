@@ -14,6 +14,8 @@
 
 Ярлики копіюються у `%AppData%\Teka\Shortcuts`, тож папка не зламається, якщо прибрати ярлик з робочого столу. Налаштування — `%AppData%\Teka\config.json`.
 
-## Збірка
+## Встановлення і оновлення
 
-GitHub Actions збирає один `Teka.exe` (self-contained, .NET 8) і публікує його в Releases на кожен пуш у `main`.
+Завантаж `Teka-win-Setup.exe` з [Releases](https://github.com/dimasdonetsk/teka/releases/latest) і запусти. Teka встановиться в `%LocalAppData%\Teka` і сама підтягуватиме нові версії (перевіряє раз на 6 годин, або вручну: трей → «Перевірити оновлення»).
+
+GitHub Actions на кожен пуш у `main` збирає програму, пакує її через Velopack і публікує реліз.

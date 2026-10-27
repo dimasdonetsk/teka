@@ -56,6 +56,11 @@ namespace Teka
                 catch (Exception ex) { Storage.Log(ex); }
             };
 
+            var updateItem = new ToolStripMenuItem("Перевірити оновлення");
+            updateItem.Click += (s, e) => app.CheckUpdatesManual();
+
+            var versionItem = new ToolStripMenuItem("Версія " + Updater.CurrentVersion) { Enabled = false };
+
             var exitItem = new ToolStripMenuItem("Вийти");
             exitItem.Click += (s, e) => app.ExitApp();
 
@@ -66,6 +71,9 @@ namespace Teka
             menu.Items.Add(autostartItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(dataItem);
+            menu.Items.Add(updateItem);
+            menu.Items.Add(versionItem);
+            menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(exitItem);
 
             menu.Opening += (s, e) =>
