@@ -1,0 +1,42 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish
+        run: >
+          dotnet publish Teka.csproj -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -p:DebugType=none
+          -p:Version=0.1.${{ github.run_number }}
+          -o out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Teka
+          path: out/Teka.exe
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="v0.1.${{ github.run_number }}"
+          gh release create "$tag" out/Teka.exe --title "Teka $tag" --notes "Автоматична збірка з коміту ${GITHUB_SHA::7}" --latest
