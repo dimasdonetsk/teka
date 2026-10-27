@@ -7,6 +7,8 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
+using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 
 namespace Teka
@@ -28,6 +30,10 @@ namespace Teka
         public FolderData Folder { get; }
 
         private readonly Border root;
+        private readonly Grid shell;
+        private readonly Canvas backdropCanvas;
+        private readonly Image backdrop;
+        private Rect captureRect; // у DIP, екранні координати
         private readonly ScaleTransform scale = new ScaleTransform(1, 1);
         private readonly TextBox title;
         private readonly WrapPanel grid;
@@ -131,16 +137,40 @@ namespace Teka
             root = new Border
             {
                 CornerRadius = new CornerRadius(Radius),
-                Background = new SolidColorBrush(Color.FromArgb(Native.IsWin11 ? (byte)0x18 : (byte)0x55, 0x14, 0x13, 0x1A)),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)),
+                Background = new LinearGradientBrush(
+                    Color.FromArgb(0x8C, 0x2A, 0x28, 0x34), Color.FromArgb(0xA6, 0x12, 0x11, 0x18), 90),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(0x38, 0xFF, 0xFF, 0xFF)),
                 BorderThickness = new Thickness(1),
                 Padding = new Thickness(Pad),
                 Child = layout,
                 Focusable = true,
-                FocusVisualStyle = null,
-                RenderTransform = scale
+                FocusVisualStyle = null
             };
-            Content = root;
+
+            // Скло: знімок робочого столу під панеллю, розмитий і обрізаний по округлих кутах.
+            backdrop = new Image
+            {
+                Stretch = Stretch.Fill,
+                IsHitTestVisible = false,
+                Effect = new BlurEffect
+                {
+                    Radius = 34,
+                    KernelType = KernelType.Gaussian,
+                    RenderingBias = RenderingBias.Performance
+                }
+            };
+            backdropCanvas = new Canvas { IsHitTestVisible = false };
+            backdropCanvas.Children.Add(backdrop);
+
+            shell = new Grid { RenderTransform = scale };
+            shell.Children.Add(backdropCanvas);
+            shell.Children.Add(root);
+            shell.SizeChanged += (s, e) =>
+            {
+                shell.Clip = new RectangleGeometry(new Rect(0, 0, e.NewSize.Width, e.NewSize.Height), Radius, Radius);
+            };
+            Content = shell;
+            LocationChanged += (s, e) => AlignBackdrop();
 
             root.MouseLeftButtonDown += (s, e) =>
             {
@@ -169,8 +199,7 @@ namespace Teka
             {
                 hwnd = new WindowInteropHelper(this).Handle;
                 Native.MakeToolWindow(hwnd, noActivate: false);
-                Native.SetRoundCorners(hwnd, true);
-                Native.EnableBlur(hwnd, Native.IsWin11 ? 0x701C1B22u : 0xB01C1B22u);
+                Native.SetRoundCorners(hwnd, false);
             };
         }
 
@@ -180,19 +209,24 @@ namespace Teka
         {
             Rebuild();
             Reposition();
-            Show();
-            ApplyRegion();
-            Activate();
+            CaptureBackdrop();
+            AlignBackdrop();
 
+            // Перший кадр — вже маленький і прозорий, щоб не «вистрибував» повний квадрат.
             var c = tile.IconCenter;
             double ox = (c.X - Left) / Width, oy = (c.Y - Top) / Height;
-            root.RenderTransformOrigin = new Point(Math.Clamp(ox, 0, 1), Math.Clamp(oy, 0, 1));
+            shell.RenderTransformOrigin = new Point(Math.Clamp(ox, 0, 1), Math.Clamp(oy, 0, 1));
+            scale.ScaleX = scale.ScaleY = 0.2;
+            Opacity = 0;
 
-            var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-            var grow = new DoubleAnimation(0.35, 1, TimeSpan.FromMilliseconds(230)) { EasingFunction = ease };
+            Show();
+            Activate();
+
+            var ease = new QuinticEase { EasingMode = EasingMode.EaseOut };
+            var grow = new DoubleAnimation(0.2, 1, TimeSpan.FromMilliseconds(280)) { EasingFunction = ease };
             scale.BeginAnimation(ScaleTransform.ScaleXProperty, grow);
             scale.BeginAnimation(ScaleTransform.ScaleYProperty, grow);
-            BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160)));
+            BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140)));
 
             if (rename)
             {
@@ -264,21 +298,65 @@ namespace Teka
             }
         }
 
-        private void ApplyRegion()
+        /// <summary>Знімок області екрана (з запасом під розмиття), над якою буде панель.</summary>
+        private void CaptureBackdrop()
         {
-            if (hwnd == IntPtr.Zero || Native.IsWin11) return; // на Win11 кути заокруглює сама система
             try
             {
-                var dpi = VisualTreeHelper.GetDpi(this);
-                int w = (int)Math.Ceiling(Width * dpi.DpiScaleX);
-                int h = (int)Math.Ceiling(Height * dpi.DpiScaleY);
-                int r = (int)Math.Round(Radius * 2 * dpi.DpiScaleX);
-                IntPtr rgn = Native.CreateRoundRectRgn(0, 0, w + 1, h + 1, r, r);
-                Native.SetWindowRgn(hwnd, rgn, true); // вікно саме звільнить регіон
+                const double margin = 60;
+                Rect wa = WorkAreaDip();
+                var r = new Rect(Left - margin, Top - margin, Width + margin * 2, Height + margin * 2);
+                r.Intersect(new Rect(wa.Left - margin, wa.Top - margin, wa.Width + margin * 2, wa.Height + margin * 2));
+                if (r.IsEmpty) return;
+
+                // Беремо з запасом по висоті — панель може вирости, коли додаєш іконки.
+                r.Height = Math.Max(r.Height, Math.Min(wa.Bottom + margin, r.Top + MaxRows * CellH + TitleH + Pad * 2 + margin * 2) - r.Top);
+
+                var dpi = VisualTreeHelper.GetDpi(tile);
+                int px = (int)Math.Floor(r.Left * dpi.DpiScaleX);
+                int py = (int)Math.Floor(r.Top * dpi.DpiScaleY);
+                int pw = Math.Max(1, (int)Math.Ceiling(r.Width * dpi.DpiScaleX));
+                int ph = Math.Max(1, (int)Math.Ceiling(r.Height * dpi.DpiScaleY));
+
+                // Зменшуємо в 4 рази — після розмиття різниці не видно, а малювати легше.
+                int sw = Math.Max(1, pw / 4), shh = Math.Max(1, ph / 4);
+                using var full = new System.Drawing.Bitmap(pw, ph, System.Drawing.Imaging.PixelFormat.Format32bppRgb);
+                using (var g = System.Drawing.Graphics.FromImage(full))
+                    g.CopyFromScreen(px, py, 0, 0, new System.Drawing.Size(pw, ph));
+                using var small = new System.Drawing.Bitmap(sw, shh, System.Drawing.Imaging.PixelFormat.Format32bppRgb);
+                using (var g = System.Drawing.Graphics.FromImage(small))
+                {
+                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear;
+                    g.DrawImage(full, 0, 0, sw, shh);
+                }
+
+                IntPtr hbmp = small.GetHbitmap();
+                try
+                {
+                    var src = Imaging.CreateBitmapSourceFromHBitmap(hbmp, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                    src.Freeze();
+                    backdrop.Source = src;
+                }
+                finally
+                {
+                    Native.DeleteObject(hbmp);
+                }
+
+                captureRect = new Rect(px / dpi.DpiScaleX, py / dpi.DpiScaleY, pw / dpi.DpiScaleX, ph / dpi.DpiScaleY);
+                backdrop.Width = captureRect.Width;
+                backdrop.Height = captureRect.Height;
             }
-            catch
+            catch (Exception ex)
             {
+                Storage.Log(ex);
             }
+        }
+
+        private void AlignBackdrop()
+        {
+            if (captureRect.IsEmpty) return;
+            Canvas.SetLeft(backdrop, captureRect.Left - Left);
+            Canvas.SetTop(backdrop, captureRect.Top - Top);
         }
 
         // ---------------- вміст ----------------
@@ -304,7 +382,7 @@ namespace Teka
                 // Не даємо панелі вилізти за екран після додавання іконок.
                 Rect wa = WorkAreaDip();
                 if (Top + Height > wa.Bottom - 10) Top = Math.Max(wa.Top + 10, wa.Bottom - Height - 10);
-                ApplyRegion();
+                AlignBackdrop();
             }
         }
 

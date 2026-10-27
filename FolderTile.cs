@@ -41,6 +41,8 @@ namespace Teka
             Color.FromArgb(0x8C, 0x3A, 0x38, 0x46), Color.FromArgb(0x8C, 0x1C, 0x1B, 0x24), 90));
         private static readonly Brush SquareHoverBrush = Frozen(new LinearGradientBrush(
             Color.FromArgb(0xB0, 0x4A, 0x47, 0x5A), Color.FromArgb(0xB0, 0x26, 0x24, 0x30), 90));
+        private static readonly Brush DropBorder = Frozen(new SolidColorBrush(Color.FromArgb(0xD0, 0xFF, 0xFF, 0xFF)));
+        private static readonly Transform DropScale = Frozen(new ScaleTransform(1.08, 1.08));
         private static readonly Brush SquareBorder = Frozen(new SolidColorBrush(Color.FromArgb(0x59, 0xFF, 0xFF, 0xFF)));
 
         internal static T Frozen<T>(T f) where T : Freezable
@@ -87,6 +89,7 @@ namespace Teka
                 BorderBrush = SquareBorder,
                 BorderThickness = new Thickness(1),
                 HorizontalAlignment = HorizontalAlignment.Center,
+                RenderTransformOrigin = new Point(0.5, 0.5),
                 Margin = new Thickness(0, SquareTop, 0, 0),
                 Child = mini,
                 Effect = new DropShadowEffect
@@ -223,7 +226,9 @@ namespace Teka
 
         private void UpdateLook()
         {
-            host.Background = dropHover ? DropHostBrush : hover ? HoverHostBrush : HitBrush;
+            host.Background = HitBrush;
+            square.BorderBrush = dropHover ? DropBorder : SquareBorder;
+            square.RenderTransform = dropHover ? DropScale : null;
             square.Background = (hover || dropHover) ? SquareHoverBrush : SquareBrush;
         }
 
